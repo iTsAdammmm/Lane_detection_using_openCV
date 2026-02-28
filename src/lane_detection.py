@@ -190,6 +190,40 @@ while video.isOpened():
                 (0, 0, 255),
                 3
             )
+    
+    # -------- Lane Curvature Estimation --------
+    if prev_left is not None and prev_right is not None:
+        left_x_top = prev_left[2]
+        right_x_top = prev_right[2]
+
+        lane_width_top = right_x_top - left_x_top
+
+        if lane_width_top > 200:
+            curve_text = "Curve: Straight"
+        elif deviation > 0:
+            curve_text = "Curve: Right"
+        else:
+            curve_text = "Curve: Left"
+
+        cv2.putText(
+            lane_frame,
+            curve_text,
+            (50, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (255, 255, 0),
+            2
+        )
+
+        cv2.putText(
+            lane_frame,
+            f"Offset: {deviation}px",
+            (50, 80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 0),
+            2
+        )
 
     # -------- Display & Save --------
     cv2.imshow("Lane Detection with ADAS Warning", lane_frame)
