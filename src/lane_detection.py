@@ -1,15 +1,14 @@
 import cv2
 import numpy as np
 
-# -----------------------------
+# ===============================
 # Helper Functions
-# -----------------------------
+# ===============================
 
 def region_of_interest(img, vertices):
     mask = np.zeros_like(img)
     cv2.fillPoly(mask, vertices, 255)
-    masked = cv2.bitwise_and(img, mask)
-    return masked
+    return cv2.bitwise_and(img, mask)
 
 
 def make_points(y1, y2, line):
@@ -30,7 +29,7 @@ def average_slope_intercept(lines, height):
         x1, y1, x2, y2 = line[0]
 
         if x1 == x2:
-            continue  # avoid division by zero
+            continue
 
         slope = (y2 - y1) / (x2 - x1)
         intercept = y1 - slope * x1
@@ -55,30 +54,47 @@ def average_slope_intercept(lines, height):
     return lanes
 
 
-# -----------------------------
-# Main Program
-# -----------------------------
+# ===============================
+# Video Setup
+# ===============================
+
+video = cv2.VideoCapture("../assets/road.mp4")
+
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+fps = int(video.get(cv2.CAP_PROP_FPS))
+width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+out = cv2.VideoWriter(
+    "../assets/output_lane_detection.mp4",
+    fourcc,
+    fps,
+    (width, height)
+)
+
+# ===============================
+# Smoothing Variables
+# ===============================
 
 prev_left = None
 prev_right = None
 alpha = 0.85
-video = cv2.VideoCapture("../assets/road.mp4")
+
+# ===============================
+# Main Loop
+# ===============================
 
 while video.isOpened():
     ret, frame = video.read()
     if not ret:
         break
 
-    # Convert to grayscale
+    # -------- Preprocessing --------
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Gaussian blur
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # Canny edge detection
     edges = cv2.Canny(blur, 75, 200)
 
-    # Define Region of Interest (triangle)
+    # -------- Region of Interest --------
     height, width = edges.shape[:2]
     roi_vertices = np.array([[
         (0, height),
@@ -88,17 +104,17 @@ while video.isOpened():
 
     cropped_edges = region_of_interest(edges, roi_vertices)
 
-    # Hough Transform
+    # -------- Hough Transform --------
     lines = cv2.HoughLinesP(
         cropped_edges,
         rho=1,
         theta=np.pi / 180,
-        threshold=40,
-        minLineLength=120,
-        maxLineGap=30
+        threshold=30,
+        minLineLength=60,
+        maxLineGap=80
     )
 
-    # Lane Detection and Smoothing
+    # -------- Lane Averaging --------
     lanes = average_slope_intercept(lines, frame.shape[0])
 
     lane_frame = frame.copy()
@@ -116,7 +132,7 @@ while video.isOpened():
             else:
                 current_right = lane
 
-    # ---- Smooth Left Lane ----
+    # -------- Independent Smoothing --------
     if current_left is not None:
         if prev_left is None:
             prev_left = current_left
@@ -126,7 +142,6 @@ while video.isOpened():
                 for p, c in zip(prev_left, current_left)
             ]
 
-    # ---- Smooth Right Lane ----
     if current_right is not None:
         if prev_right is None:
             prev_right = current_right
@@ -136,28 +151,29 @@ while video.isOpened():
                 for p, c in zip(prev_right, current_right)
             ]
 
-    # ---- Draw Lanes ----
+    # -------- Draw Lanes --------
     if prev_left is not None:
-        cv2.line(lane_frame,
-                (prev_left[0], prev_left[1]),
-                (prev_left[2], prev_left[3]),
-                (0, 255, 0), 8)
+        cv2.line(
+            lane_frame,
+            (prev_left[0], prev_left[1]),
+            (prev_left[2], prev_left[3]),
+            (0, 255, 0),
+            8
+        )
 
     if prev_right is not None:
-        cv2.line(lane_frame,
-                (prev_right[0], prev_right[1]),
-                (prev_right[2], prev_right[3]),
-                (0, 255, 0), 8)
-        
-    # -----------------------------
-    # Lane Departure Warning
-    # -----------------------------
-    if lanes is not None and len(lanes) == 2:
-        left_lane = lanes[0]
-        right_lane = lanes[1]
+        cv2.line(
+            lane_frame,
+            (prev_right[0], prev_right[1]),
+            (prev_right[2], prev_right[3]),
+            (0, 255, 0),
+            8
+        )
 
-        left_x_bottom = left_lane[0]
-        right_x_bottom = right_lane[0]
+    # -------- Lane Departure Warning --------
+    if prev_left is not None and prev_right is not None:
+        left_x_bottom = prev_left[0]
+        right_x_bottom = prev_right[0]
 
         lane_center = (left_x_bottom + right_x_bottom) // 2
         frame_center = frame.shape[1] // 2
@@ -175,10 +191,17 @@ while video.isOpened():
                 3
             )
 
+    # -------- Display & Save --------
     cv2.imshow("Lane Detection with ADAS Warning", lane_frame)
+    out.write(lane_frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+# ===============================
+# Cleanup
+# ===============================
+
 video.release()
+out.release()
 cv2.destroyAllWindows()
